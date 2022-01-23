@@ -35,6 +35,7 @@ contract Lottery is VRFConsumerBase, Ownable{
     address _link, 
     uint256 _fee,
     bytes32 _keyhash)
+    
 
     public VRFConsumerBase(_vrfCoordinator, _link)
     {
