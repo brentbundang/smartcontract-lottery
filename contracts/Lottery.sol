@@ -1,13 +1,16 @@
 // SPDX-License-Identifier: MIT
 
-pragma solidity ^0.8.0;
+pragma solidity ^0.6.0;
 
 import "@chainlink/contracts/src/v0.6/interfaces/AggregatorV3Interface.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
+import "@chainlink/contracts/src/v0.6/VRFConsumerBase.sol";
 
-contract Lottery is Ownable{
+contract Lottery is VRFConsumerBase, Ownable{
     address payable[] public players;
+    address payable public recentWinner;
     uint256 public usdEntryFee;
+    uint256 public randomness;
     AggregatorV3Interface internal ethUsdPriceFeed;
 
     enum LOTTERY_STATE {
@@ -17,6 +20,8 @@ contract Lottery is Ownable{
     }
 
     LOTTERY_STATE public lottery_state;
+    uint256 public fee;
+    bytes32 public keyhash; //uniquely idenitfy the chainlink VRF node 
 
     function enter() public payable{
         require(lottery_state == LOTTERY_STATE.OPEN);
@@ -25,10 +30,19 @@ contract Lottery is Ownable{
         players.push(payable(msg.sender));    
     }
 
-    constructor(address _priceFeed){
+    constructor(address _priceFeed, 
+    address _vrfCoordinator, 
+    address _link, 
+    uint256 _fee,
+    bytes32 _keyhash)
+
+    public VRFConsumerBase(_vrfCoordinator, _link)
+    {
          usdEntryFee = 50 * (10**18); //Expressed in wei
          ethUsdPriceFeed = AggregatorV3Interface(_priceFeed);
          lottery_state = LOTTERY_STATE.CLOSED;
+         fee = _fee;
+         keyhash = _keyhash;
     }
 
     function getEntranceFee() public view returns (uint256){
@@ -47,5 +61,19 @@ contract Lottery is Ownable{
         lottery_state = LOTTERY_STATE.OPEN;
     }
 
-    function endLottery() public {}
+    function endLottery() public onlyOwner {
+       lottery_state = LOTTERY_STATE.CALCULATING_WINNER;
+       requestRandomness(keyhash,fee);  //request/recieve call chainlink
+    }
+
+    function fulfillRandomness(bytes32 _requestId, uint _randomness) internal override {
+        require(lottery_state == LOTTERY_STATE.CALCULATING_WINNER, "You aren't there yet!");
+        require(_randomness > 0, "random not found");
+        uint256 indexOfWinner = _randomness % players.length;
+        recentWinner = players[indexOfWinner];
+        recentWinner.transfer(address(this).balance);
+        players = new address payable[](0);
+        lottery_state = LOTTERY_STATE.CLOSED;
+        randomness = _randomness;
+    }
 }
